@@ -1,0 +1,53 @@
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../ipc';
+
+const ACTIONS = [
+  { id: 'start-all', label: 'Start all tasks', run: () => api.tasksStart() },
+  { id: 'stop-all', label: 'Stop all tasks', run: () => api.tasksStop() },
+  { id: 'new-task', label: 'New task', run: () => api.openNewTask() },
+  { id: 'test-mode', label: 'Toggle Test Mode', run: () => api.toggleTestMode() },
+  { id: 'panic', label: 'Panic — stop and clear carts', run: () => api.panic() },
+  { id: 'export-logs', label: 'Export logs', run: () => api.logsExport() },
+  { id: 'diagnostics', label: 'Build diagnostics bundle', run: () => api.diagnostics() }
+];
+
+export function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [tasks, setTasks] = useState<any[]>([]);
+
+  useEffect(() => { if (open) api.tasksList().then(setTasks); }, [open]);
+
+  const results = useMemo(() => {
+    const needle = q.toLowerCase();
+    const a = ACTIONS.filter(x => x.label.toLowerCase().includes(needle));
+    const t = tasks.filter(x => (x.site + x.handle).toLowerCase().includes(needle))
+      .slice(0, 8).map(x => ({ id: x.id, label: `Task · ${x.site} · ${x.handle}`, run: () => api.focusTask(x.id) }));
+    return [...a, ...t];
+  }, [q, tasks]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); }
+      if (e.key === 'Escape') onClose();
+    };
+    addEventListener('keydown', h);
+    return () => removeEventListener('keydown', h);
+  }, [onClose]);
+
+  if (!open) return null;
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="palette" onClick={e => e.stopPropagation()}>
+        <input autoFocus placeholder="Search tasks or run a command…" value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { results[0]?.run(); onClose(); } }} />
+        {results.map(r => (
+          <button key={r.id} className="palette-row" onClick={() => { r.run(); onClose(); }}>
+            {r.label}
+          </button>
+        ))}
+        {!results.length && <p className="muted pad">Nothing matches.</p>}
+      </div>
+    </div>
+  );
+}
