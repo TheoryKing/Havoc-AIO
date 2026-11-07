@@ -1,0 +1,21 @@
+export interface Preset {
+  id: string; label: string; blurb: string;
+  sites: string[]; concurrency: number;
+  captchaMode: 'auto' | 'manual'; requiresResidential: boolean;
+}
+
+export const PRESETS: Preset[] = [
+  { id: 'shopify-starter', label: 'Shopify Starter', blurb: '20 Shopify hosts, 3 tasks per site',
+    sites: ['kith.com','bodega.com','concepts.com','notre-shop.com','a-ma-maniere.com',
+            'extrabutterny.com','unionlosangeles.com','slamjam.com','patta.nl','palaceskateboards.com'],
+    concurrency: 3, captchaMode: 'auto', requiresResidential: true },
+  { id: 'collectibles', label: 'Collectibles', blurb: 'Pokémon Center, Topps, Panini, Funko',
+    sites: ['pokemoncenter.com','topps.com','panini.com','funko.com'],
+    concurrency: 4, captchaMode: 'auto', requiresResidential: false },
+  { id: 'footsites', label: 'Footsites', blurb: 'Foot Locker family, 2 tasks per site',
+    sites: ['footlocker.com','champsports.com','footaction.com','eastbay.com','kidsfootlocker.com'],
+    concurrency: 2, captchaMode: 'auto', requiresResidential: false },
+  { id: 'retail', label: 'Big retail', blurb: 'Walmart, Target, Best Buy, Amazon',
+    sites: ['walmart.com','target.com','bestbuy.com','amazon.com'],
+    concurrency: 2, captchaMode: 'manual', requiresResidential: false }
+];
