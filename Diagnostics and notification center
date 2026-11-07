@@ -1,0 +1,16 @@
+import { app } from 'electron';
+import AdmZip from 'adm-zip';
+import { db } from './db';
+
+export async function bundle(): Promise<string> {
+  const zip = new AdmZip();
+  zip.addFile('versions.txt', Buffer.from(
+    `havoc ${app.getVersion()}\nelectron ${process.versions.electron}\nnode ${process.versions.node}\n` +
+    `os ${process.platform} ${process.arch}\n`));
+  const logs = db.prepare('SELECT t,level,site,msg FROM logs ORDER BY id DESC LIMIT 5000').all();
+  zip.addFile('logs.txt', Buffer.from(logs.map((l: any) =>
+    `${new Date(l.t).toISOString()} ${l.level} ${l.site} ${l.msg}`).join('\n')));
+  const out = `${app.getPath('downloads')}/havoc-diagnostics-${Date.now()}.zip`;
+  zip.writeZip(out);
+  return out;
+}
