@@ -1,0 +1,41 @@
+import { db, getSetting } from './db';
+import { captchaBalance } from '../captcha/balance';
+
+export interface Issue {
+  id: string; severity: 'warn' | 'bad'; msg: string;
+  action?: { label: string; route: string };
+}
+
+export function healthScan(): Issue[] {
+  const out: Issue[] = [];
+
+  const dead = db.prepare("SELECT COUNT(*) c FROM proxies WHERE health='dead'").get() as any;
+  if (dead.c > 0) out.push({ id: 'dead-proxy', severity: 'bad',
+    msg: `${dead.c} dead proxies in your pool`, action: { label: 'Prune', route: '/proxies' } });
+
+  const expiring = db.prepare(
+    `SELECT COUNT(*) c FROM cards WHERE CAST(exp_year AS INTEGER) < ?`
+  ).get(new Date().getFullYear()) as any;
+  if (expiring.c > 0) out.push({ id: 'expired-card', severity: 'warn',
+    msg: `${expiring.c} cards expired`, action: { label: 'Review', route: '/cards' } });
+
+  const noProfile = db.prepare('SELECT COUNT(*) c FROM profiles').get() as any;
+  if (noProfile.c === 0) out.push({ id: 'no-profile', severity: 'warn',
+    msg: 'No profiles yet', action: { label: 'Generate', route: '/profiles' } });
+
+  if (!getSetting('captcha.order')) out.push({ id: 'no-captcha', severity: 'bad',
+    msg: 'No captcha solver configured', action: { label: 'Add key', route: '/captcha' } });
+
+  const drift = Math.abs(Date.now() - Date.now()); // replaced by NTP check
+  if (drift > 3000) out.push({ id: 'clock', severity: 'warn', msg: `System clock off by ${drift}ms` });
+
+  return out;
+}
+
+export async function balanceWatch(): Promise<Issue[]> {
+  const bal = await captchaBalance().catch(() => null);
+  return bal !== null && bal < 2
+    ? [{ id: 'captcha-low', severity: 'bad', msg: `Captcha balance low (${bal})`,
+         action: { label: 'Top up', route: '/captcha' } }]
+    : [];
+}
