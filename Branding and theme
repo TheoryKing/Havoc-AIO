@@ -1,0 +1,8 @@
+export const BRAND = {
+  name: 'Havoc AIO',
+  short: 'HAVOC',
+  tagline: 'Checkout at the speed of chaos',
+  id: 'ai.havoc.client',
+  scheme: 'havoc',
+  repo: 'havoc-aio'
+} as const;
