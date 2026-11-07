@@ -1,0 +1,64 @@
+import { chromium, Browser, Page } from 'playwright';
+import { CookieJar } from './cookies';
+import type { Profile } from '../shared/types';
+
+let browser: Browser | null = null;
+const contexts = new Map<string, Page>();
+
+async function ensure() {
+  browser ??= await chromium.launch({ headless: true, args: ['--disable-blink-features=AutomationControlled'] });
+  return browser;
+}
+
+/** Hand off to a real browser for queue walls, CF interactive, and 3DS iframes. */
+export async function handoff(url: string, proxy: string | undefined, profile: Profile, jar: CookieJar) {
+  const b = await ensure();
+  const ctx = await b.newContext({
+    proxy: proxy ? { server: proxy.split('@')[1] ? `http://${proxy.split('@')[1]}` : proxy,
+                     username: proxy.split('@')[0]?.split('//')[1]?.split(':')[0],
+                     password: proxy.split('@')[0]?.split(':')[1] } : undefined,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1440, height: 900 }, locale: 'en-US'
+  });
+  await ctx.addCookies(Object.entries(jar.all()).map(([domain, v]) => ({
+    name: v.split('=')[0], value: v.slice(v.indexOf('=') + 1), domain, path: '/'
+  })));
+
+  const page = await ctx.newPage();
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+
+  // wait out the queue, then solve any embedded widget
+  await page.waitForFunction(() => !/queue-it|you are now in line/i.test(document.body.innerText), { timeout: 300_000 })
+    .catch(() => {});
+
+  const filled = await fillForm(page, profile).catch(() => false);
+  contexts.set(profile.id, page);
+  return { page, filled, close: () => ctx.close() };
+}
+
+async function fillForm(page: Page, p: Profile) {
+  const put = async (sel: string, val: string) => {
+    const el = await page.$(sel);
+    if (el) { await el.fill(val); return true; }
+    return false;
+  };
+  await put('[name*="email"]', p.email);
+  await put('[name*="firstName"], [name*="first_name"]', p.firstName);
+  await put('[name*="lastName"], [name*="last_name"]', p.lastName);
+  await put('[name*="address1"]', p.address1);
+  await put('[name*="city"]', p.city);
+  await put('[name*="zip"], [name*="postal"]', p.zip);
+  await put('[name*="phone"]', p.phone);
+  return true;
+}
+
+/** 3DS: keep the page alive, harvest the OTP from IMAP, then type it. */
+export async function submitOtp(profileId: string, code: string) {
+  const page = contexts.get(profileId);
+  if (!page) return false;
+  const box = await page.$('input[name*="code"], input[autocomplete="one-time-code"]');
+  if (!box) return false;
+  await box.fill(code);
+  await page.keyboard.press('Enter');
+  return true;
+}
