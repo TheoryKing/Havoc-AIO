@@ -1,0 +1,26 @@
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+
+let masterKey: Buffer | null = null;
+
+export function unlock(masterPassword: string) {
+  const salt = Buffer.from(getSetting('vault.salt')!, 'hex');
+  masterKey = scryptSync(masterPassword, salt, 32);
+  const probe = getSetting('vault.probe');
+  if (probe) seal('ok'); // validates key
+  return true;
+}
+
+export function seal(plain: string): string {
+  const key = masterKey!;
+  const iv = randomBytes(12);
+  const c = createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
+  return [iv.toString('hex'), c.getAuthTag().toString('hex'), enc.toString('hex')].join(':');
+}
+
+export function open(sealed: string): string {
+  const [iv, tag, data] = sealed.split(':');
+  const d = createDecipheriv('aes-256-gcm', masterKey!, Buffer.from(iv, 'hex'));
+  d.setAuthTag(Buffer.from(tag, 'hex'));
+  return Buffer.concat([d.update(Buffer.from(data, 'hex')), d.final()]).toString('utf8');
+}
