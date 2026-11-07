@@ -1,0 +1,56 @@
+import { useState } from 'react';
+import { api } from '../../ipc';
+
+const STEPS = [
+  { id: 'welcome', title: 'Welcome', body: 'Six short steps and you will be running tasks. Everything is skippable.' },
+  { id: 'license', title: 'Licence', body: 'Paste your key. It binds to this machine.' },
+  { id: 'captcha', title: 'Captcha', body: 'Add one solver key. CapSolver or CapMonster are the cheapest for most sites.' },
+  { id: 'proxy', title: 'Proxies', body: 'Paste a proxy list, one per line. Residential works best for Shopify.' },
+  { id: 'profile', title: 'Profile & card', body: 'Generate a profile with a matching card, or import a CSV.' },
+  { id: 'test', title: 'Test run', body: 'Cart-only test against a live store to prove the whole chain works.' }
+];
+
+export function Wizard({ onDone }: { onDone: () => void }) {
+  const [i, setI] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const step = STEPS[i];
+  const last = i === STEPS.length - 1;
+
+  async function runTest() {
+    setBusy(true);
+    const r = await api.wizardTestCheckout();
+    setBusy(false);
+    if (r.ok) onDone();
+  }
+
+  return (
+    <div className="wizard">
+      <header>
+        <img src="/logo.png" alt="" />
+        <div>
+          <h1>{step.title}</h1>
+          <p className="muted">{step.body}</p>
+        </div>
+        <span className="pill">{i + 1} / {STEPS.length}</span>
+      </header>
+
+      <div className="progress"><i style={{ width: `${((i + 1) / STEPS.length) * 100}%` }} /></div>
+
+      <section>
+        {step.id === 'welcome' && <WelcomeStep />}
+        {step.id === 'license' && <LicenseStep />}
+        {step.id === 'captcha' && <CaptchaStep />}
+        {step.id === 'proxy' && <ProxyStep />}
+        {step.id === 'profile' && <ProfileStep />}
+        {step.id === 'test' && <TestStep busy={busy} onRun={runTest} />}
+      </section>
+
+      <footer>
+        <button className="ghost" onClick={() => i === 0 ? onDone() : setI(i - 1)}>Back</button>
+        <button className="ghost" onClick={onDone}>Skip setup</button>
+        {!last && <button className="primary" onClick={() => setI(i + 1)}>Continue</button>}
+        {last && <button className="primary" disabled={busy} onClick={runTest}>Run test</button>}
+      </footer>
+    </div>
+  );
+}
