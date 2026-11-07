@@ -1,0 +1,23 @@
+import { get } from '../engine/http';
+import { createVerify } from 'node:crypto';
+import { db, getSetting, setSetting } from './db';
+
+const FEED = 'https://packs.havoc.ai/latest.json';
+
+export async function syncPacks() {
+  const res = await get(FEED, { timeoutMs: 10_000 });
+  const pack = res.json<{ version: number; sig: string; payload: any }>();
+  if (!pack) return false;
+
+  const v = createVerify('sha256').update(JSON.stringify(pack.payload)).verify(
+    getSetting('packs.pubkey')!, pack.sig, 'base64');
+  if (!v) return false;
+
+  db.prepare('INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v')
+    .run('packs.payload', JSON.stringify(pack.payload));
+  setSetting('packs.version', String(pack.version));
+  return true;
+}
+
+export const packFor = (host: string) =>
+  JSON.parse(getSetting('packs.payload') ?? '{}')?.sites?.[host] ?? null;
