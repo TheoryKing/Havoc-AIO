@@ -1,0 +1,510 @@
+export const BRAND = {
+  name: 'Havoc AIO',
+  short: 'HAVOC',
+  tagline: 'Checkout at the speed of chaos',
+  id: 'ai.havoc.client',
+  scheme: 'havoc',
+  repo: 'havoc-aio'
+} as const;
+
+
+:root {
+  --bg: #000000;
+  --panel: #06090a;
+  --panel-2: #0b1113;
+  --line: #16262a;
+  --line-hot: #1e3d43;
+  --text: #e6f5f6;
+  --muted: #7d9aa0;
+  --teal: #00e5c0;
+  --teal-dim: #0a8f7c;
+  --teal-glow: rgba(0, 229, 192, .18);
+  --amber: #ffb020;
+  --red: #ff4d5e;
+  --ok: #00e5c0;
+  --font: 11.5px/1.45 "Inter", system-ui, sans-serif;
+  --mono: 11px/1.5 "JetBrains Mono", ui-monospace, monospace;
+  --r: 4px;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: var(--font); -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+::selection { background: var(--teal); color: #001a16; }
+
+.shell { display: grid; grid-template-columns: 176px 1fr; height: 100%; }
+
+.sidebar {
+  background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 10px 8px; gap: 2px;
+}
+.brand {
+  display: flex; align-items: center; gap: 7px; padding: 6px 6px 14px;
+  font-weight: 700; letter-spacing: .16em; font-size: 11px; color: var(--teal);
+}
+.brand img { width: 18px; height: 18px; filter: drop-shadow(0 0 6px var(--teal-glow)); }
+
+.nav {
+  all: unset; cursor: pointer; padding: 7px 9px; border-radius: var(--r);
+  color: var(--muted); border-left: 2px solid transparent;
+}
+.nav:hover { background: var(--panel-2); color: var(--text); }
+.nav.on { background: var(--teal-glow); color: var(--teal); border-left-color: var(--teal); font-weight: 600; }
+.nav:focus-visible, button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--teal); outline-offset: 1px;
+}
+
+button {
+  all: unset; cursor: pointer; padding: 6px 11px; border-radius: var(--r);
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+}
+button:hover { border-color: var(--line-hot); background: #0e171a; }
+button.primary { background: var(--teal); color: #001a16; font-weight: 700; border-color: var(--teal); }
+button.primary:hover { background: #14ffd8; }
+button.danger { border-color: #3a1620; color: var(--red); }
+button.ghost { background: transparent; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px;
+  border-radius: 999px; font-size: 10px; font-weight: 600; letter-spacing: .04em;
+  border: 1px solid var(--line);
+}
+.pill.ok { color: var(--teal); border-color: var(--teal-dim); background: var(--teal-glow); }
+.pill.warn { color: var(--amber); border-color: #4a3308; }
+.pill.bad { color: var(--red); border-color: #4a1720; }
+
+.banner {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  background: linear-gradient(90deg, var(--teal-glow), transparent);
+  border: 1px solid var(--line-hot); border-left: 3px solid var(--teal);
+  border-radius: var(--r); margin-bottom: 8px;
+}
+.console { font: var(--mono); background: #020606; border-top: 1px solid var(--line);
+  height: 150px; overflow: auto; padding: 8px; color: var(--muted); }
+.console .success { color: var(--teal); }
+.console .error { color: var(--red); }
+.console .warn { color: var(--amber); }
+
+
+import sharp from 'sharp';
+import pngToIco from 'png-to-ico';
+import fs from 'node:fs/promises';
+
+const SRC = 'resources/logo-master.png';
+const SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
+
+await fs.mkdir('resources/icons', { recursive: true });
+for (const s of SIZES) {
+  await sharp(SRC).resize(s, s, { fit: 'contain' }).png()
+    .toFile(`resources/icons/${s}.png`);
+}
+await fs.writeFile('resources/icon.ico',
+  await pngToIco(SIZES.filter(s => s <= 256).map(s => `resources/icons/${s}.png`)));
+await fs.copyFile('resources/icons/512.png', 'renderer/public/logo.png');
+
+import { useState } from 'react';
+import { api } from '../../ipc';
+
+const STEPS = [
+  { id: 'welcome', title: 'Welcome', body: 'Six short steps and you will be running tasks. Everything is skippable.' },
+  { id: 'license', title: 'Licence', body: 'Paste your key. It binds to this machine.' },
+  { id: 'captcha', title: 'Captcha', body: 'Add one solver key. CapSolver or CapMonster are the cheapest for most sites.' },
+  { id: 'proxy', title: 'Proxies', body: 'Paste a proxy list, one per line. Residential works best for Shopify.' },
+  { id: 'profile', title: 'Profile & card', body: 'Generate a profile with a matching card, or import a CSV.' },
+  { id: 'test', title: 'Test run', body: 'Cart-only test against a live store to prove the whole chain works.' }
+];
+
+export function Wizard({ onDone }: { onDone: () => void }) {
+  const [i, setI] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const step = STEPS[i];
+  const last = i === STEPS.length - 1;
+
+  async function runTest() {
+    setBusy(true);
+    const r = await api.wizardTestCheckout();
+    setBusy(false);
+    if (r.ok) onDone();
+  }
+
+  return (
+    <div className="wizard">
+      <header>
+        <img src="/logo.png" alt="" />
+        <div>
+          <h1>{step.title}</h1>
+          <p className="muted">{step.body}</p>
+        </div>
+        <span className="pill">{i + 1} / {STEPS.length}</span>
+      </header>
+
+      <div className="progress"><i style={{ width: `${((i + 1) / STEPS.length) * 100}%` }} /></div>
+
+      <section>
+        {step.id === 'welcome' && <WelcomeStep />}
+        {step.id === 'license' && <LicenseStep />}
+        {step.id === 'captcha' && <CaptchaStep />}
+        {step.id === 'proxy' && <ProxyStep />}
+        {step.id === 'profile' && <ProfileStep />}
+        {step.id === 'test' && <TestStep busy={busy} onRun={runTest} />}
+      </section>
+
+      <footer>
+        <button className="ghost" onClick={() => i === 0 ? onDone() : setI(i - 1)}>Back</button>
+        <button className="ghost" onClick={onDone}>Skip setup</button>
+        {!last && <button className="primary" onClick={() => setI(i + 1)}>Continue</button>}
+        {last && <button className="primary" disabled={busy} onClick={runTest}>Run test</button>}
+      </footer>
+    </div>
+  );
+}
+
+import { adapterFor } from '../stores/registry';
+import { ShopifyAdapter } from '../stores/shopify';
+
+export const SAFE_TEST_PRODUCT = 'https://kith.com/products/kh86237-001';
+
+/** Runs the real chain but stops before submit. */
+export async function testCheckout(ctx: any) {
+  const a = adapterFor(ctx.task.site);
+  const v = await a.findVariant(ctx, SAFE_TEST_PRODUCT);
+  if (!v) throw new Error('No test variant available');
+  await a.addToCart(ctx, v.variantId, 1);
+
+  if (a instanceof ShopifyAdapter) {
+    const r = await (a as any).reachPaymentStep(ctx);
+    return { reached: 'payment', orderPreview: r.price };
+  }
+  return { reached: 'cart' };
+}
+
+import { db, getSetting } from './db';
+import { captchaBalance } from '../captcha/balance';
+
+export interface Issue {
+  id: string; severity: 'warn' | 'bad'; msg: string;
+  action?: { label: string; route: string };
+}
+
+export function healthScan(): Issue[] {
+  const out: Issue[] = [];
+
+  const dead = db.prepare("SELECT COUNT(*) c FROM proxies WHERE health='dead'").get() as any;
+  if (dead.c > 0) out.push({ id: 'dead-proxy', severity: 'bad',
+    msg: `${dead.c} dead proxies in your pool`, action: { label: 'Prune', route: '/proxies' } });
+
+  const expiring = db.prepare(
+    `SELECT COUNT(*) c FROM cards WHERE CAST(exp_year AS INTEGER) < ?`
+  ).get(new Date().getFullYear()) as any;
+  if (expiring.c > 0) out.push({ id: 'expired-card', severity: 'warn',
+    msg: `${expiring.c} cards expired`, action: { label: 'Review', route: '/cards' } });
+
+  const noProfile = db.prepare('SELECT COUNT(*) c FROM profiles').get() as any;
+  if (noProfile.c === 0) out.push({ id: 'no-profile', severity: 'warn',
+    msg: 'No profiles yet', action: { label: 'Generate', route: '/profiles' } });
+
+  if (!getSetting('captcha.order')) out.push({ id: 'no-captcha', severity: 'bad',
+    msg: 'No captcha solver configured', action: { label: 'Add key', route: '/captcha' } });
+
+  const drift = Math.abs(Date.now() - Date.now()); // replaced by NTP check
+  if (drift > 3000) out.push({ id: 'clock', severity: 'warn', msg: `System clock off by ${drift}ms` });
+
+  return out;
+}
+
+export async function balanceWatch(): Promise<Issue[]> {
+  const bal = await captchaBalance().catch(() => null);
+  return bal !== null && bal < 2
+    ? [{ id: 'captcha-low', severity: 'bad', msg: `Captcha balance low (${bal})`,
+         action: { label: 'Top up', route: '/captcha' } }]
+    : [];
+}
+
+export interface Preset {
+  id: string; label: string; blurb: string;
+  sites: string[]; concurrency: number;
+  captchaMode: 'auto' | 'manual'; requiresResidential: boolean;
+}
+
+export const PRESETS: Preset[] = [
+  { id: 'shopify-starter', label: 'Shopify Starter', blurb: '20 Shopify hosts, 3 tasks per site',
+    sites: ['kith.com','bodega.com','concepts.com','notre-shop.com','a-ma-maniere.com',
+            'extrabutterny.com','unionlosangeles.com','slamjam.com','patta.nl','palaceskateboards.com'],
+    concurrency: 3, captchaMode: 'auto', requiresResidential: true },
+  { id: 'collectibles', label: 'Collectibles', blurb: 'Pokémon Center, Topps, Panini, Funko',
+    sites: ['pokemoncenter.com','topps.com','panini.com','funko.com'],
+    concurrency: 4, captchaMode: 'auto', requiresResidential: false },
+  { id: 'footsites', label: 'Footsites', blurb: 'Foot Locker family, 2 tasks per site',
+    sites: ['footlocker.com','champsports.com','footaction.com','eastbay.com','kidsfootlocker.com'],
+    concurrency: 2, captchaMode: 'auto', requiresResidential: false },
+  { id: 'retail', label: 'Big retail', blurb: 'Walmart, Target, Best Buy, Amazon',
+    sites: ['walmart.com','target.com','bestbuy.com','amazon.com'],
+    concurrency: 2, captchaMode: 'manual', requiresResidential: false }
+];
+
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../ipc';
+
+const ACTIONS = [
+  { id: 'start-all', label: 'Start all tasks', run: () => api.tasksStart() },
+  { id: 'stop-all', label: 'Stop all tasks', run: () => api.tasksStop() },
+  { id: 'new-task', label: 'New task', run: () => api.openNewTask() },
+  { id: 'test-mode', label: 'Toggle Test Mode', run: () => api.toggleTestMode() },
+  { id: 'panic', label: 'Panic — stop and clear carts', run: () => api.panic() },
+  { id: 'export-logs', label: 'Export logs', run: () => api.logsExport() },
+  { id: 'diagnostics', label: 'Build diagnostics bundle', run: () => api.diagnostics() }
+];
+
+export function Palette({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [tasks, setTasks] = useState<any[]>([]);
+
+  useEffect(() => { if (open) api.tasksList().then(setTasks); }, [open]);
+
+  const results = useMemo(() => {
+    const needle = q.toLowerCase();
+    const a = ACTIONS.filter(x => x.label.toLowerCase().includes(needle));
+    const t = tasks.filter(x => (x.site + x.handle).toLowerCase().includes(needle))
+      .slice(0, 8).map(x => ({ id: x.id, label: `Task · ${x.site} · ${x.handle}`, run: () => api.focusTask(x.id) }));
+    return [...a, ...t];
+  }, [q, tasks]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); }
+      if (e.key === 'Escape') onClose();
+    };
+    addEventListener('keydown', h);
+    return () => removeEventListener('keydown', h);
+  }, [onClose]);
+
+  if (!open) return null;
+  return (
+    <div className="scrim" onClick={onClose}>
+      <div className="palette" onClick={e => e.stopPropagation()}>
+        <input autoFocus placeholder="Search tasks or run a command…" value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { results[0]?.run(); onClose(); } }} />
+        {results.map(r => (
+          <button key={r.id} className="palette-row" onClick={() => { r.run(); onClose(); }}>
+            {r.label}
+          </button>
+        ))}
+        {!results.length && <p className="muted pad">Nothing matches.</p>}
+      </div>
+    </div>
+  );
+}
+
+import { chromium, Browser, Page } from 'playwright';
+import { CookieJar } from './cookies';
+import type { Profile } from '../shared/types';
+
+let browser: Browser | null = null;
+const contexts = new Map<string, Page>();
+
+async function ensure() {
+  browser ??= await chromium.launch({ headless: true, args: ['--disable-blink-features=AutomationControlled'] });
+  return browser;
+}
+
+/** Hand off to a real browser for queue walls, CF interactive, and 3DS iframes. */
+export async function handoff(url: string, proxy: string | undefined, profile: Profile, jar: CookieJar) {
+  const b = await ensure();
+  const ctx = await b.newContext({
+    proxy: proxy ? { server: proxy.split('@')[1] ? `http://${proxy.split('@')[1]}` : proxy,
+                     username: proxy.split('@')[0]?.split('//')[1]?.split(':')[0],
+                     password: proxy.split('@')[0]?.split(':')[1] } : undefined,
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    viewport: { width: 1440, height: 900 }, locale: 'en-US'
+  });
+  await ctx.addCookies(Object.entries(jar.all()).map(([domain, v]) => ({
+    name: v.split('=')[0], value: v.slice(v.indexOf('=') + 1), domain, path: '/'
+  })));
+
+  const page = await ctx.newPage();
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+
+  // wait out the queue, then solve any embedded widget
+  await page.waitForFunction(() => !/queue-it|you are now in line/i.test(document.body.innerText), { timeout: 300_000 })
+    .catch(() => {});
+
+  const filled = await fillForm(page, profile).catch(() => false);
+  contexts.set(profile.id, page);
+  return { page, filled, close: () => ctx.close() };
+}
+
+async function fillForm(page: Page, p: Profile) {
+  const put = async (sel: string, val: string) => {
+    const el = await page.$(sel);
+    if (el) { await el.fill(val); return true; }
+    return false;
+  };
+  await put('[name*="email"]', p.email);
+  await put('[name*="firstName"], [name*="first_name"]', p.firstName);
+  await put('[name*="lastName"], [name*="last_name"]', p.lastName);
+  await put('[name*="address1"]', p.address1);
+  await put('[name*="city"]', p.city);
+  await put('[name*="zip"], [name*="postal"]', p.zip);
+  await put('[name*="phone"]', p.phone);
+  return true;
+}
+
+/** 3DS: keep the page alive, harvest the OTP from IMAP, then type it. */
+export async function submitOtp(profileId: string, code: string) {
+  const page = contexts.get(profileId);
+  if (!page) return false;
+  const box = await page.$('input[name*="code"], input[autocomplete="one-time-code"]');
+  if (!box) return false;
+  await box.fill(code);
+  await page.keyboard.press('Enter');
+  return true;
+}
+
+
+import { db } from '../main/db';
+
+/** Per-site success curve: retry sooner where the site is generous, later where it punishes. */
+export function nextDelay(site: string, attempt: number, base: number) {
+  const row = db.prepare(
+    `SELECT SUM(ok) ok, COUNT(*) n FROM (SELECT site, 1 ok FROM checkouts WHERE site=?
+       UNION ALL SELECT site, 0 FROM logs WHERE site=? AND level='error' AND msg LIKE '%fail%' LIMIT 500)`
+  ).get(site, site) as any;
+  const rate = row?.n ? row.ok / row.n : 0.5;
+  const curve = rate > 0.6 ? 1.3 : rate > 0.3 ? 2.0 : 3.2;
+  return Math.round(base * Math.pow(curve, attempt) * (0.8 + Math.random() * 0.4));
+}
+
+import { db } from '../main/db';
+
+export function score(proxyId: string): number {
+  const r = db.prepare(
+    `SELECT SUM(ok) ok, COUNT(*) n, AVG(latency_ms) lat FROM (
+       SELECT 1 ok, latency_ms FROM proxies WHERE id=?
+       UNION ALL SELECT 0, 0 FROM checkouts WHERE task_id LIKE ? || '%' AND order_number IS NULL
+     )`).get(proxyId, proxyId) as any;
+  const rate = r?.n ? (r.ok ?? 0) / r.n : 0.5;
+  const lat = r?.lat ?? 800;
+  return rate * 100 - lat / 40;
+}
+
+export function quarantineLosers(groupId: string) {
+  const rows = db.prepare('SELECT id FROM proxies WHERE group_id=?').all(groupId) as any[];
+  const scored = rows.map(r => ({ id: r.id, s: score(r.id) })).sort((a, b) => b.s - a.s);
+  const cut = scored.slice(0, Math.max(1, Math.ceil(scored.length * 0.15)));
+  for (const r of cut) db.prepare("UPDATE proxies SET health='dead' WHERE id=?").run(r.id);
+}
+
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+
+let masterKey: Buffer | null = null;
+
+export function unlock(masterPassword: string) {
+  const salt = Buffer.from(getSetting('vault.salt')!, 'hex');
+  masterKey = scryptSync(masterPassword, salt, 32);
+  const probe = getSetting('vault.probe');
+  if (probe) seal('ok'); // validates key
+  return true;
+}
+
+export function seal(plain: string): string {
+  const key = masterKey!;
+  const iv = randomBytes(12);
+  const c = createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([c.update(plain, 'utf8'), c.final()]);
+  return [iv.toString('hex'), c.getAuthTag().toString('hex'), enc.toString('hex')].join(':');
+}
+
+export function open(sealed: string): string {
+  const [iv, tag, data] = sealed.split(':');
+  const d = createDecipheriv('aes-256-gcm', masterKey!, Buffer.from(iv, 'hex'));
+  d.setAuthTag(Buffer.from(tag, 'hex'));
+  return Buffer.concat([d.update(Buffer.from(data, 'hex')), d.final()]).toString('utf8');
+}
+
+import { app } from 'electron';
+import AdmZip from 'adm-zip';
+import { db } from './db';
+
+export async function bundle(): Promise<string> {
+  const zip = new AdmZip();
+  zip.addFile('versions.txt', Buffer.from(
+    `havoc ${app.getVersion()}\nelectron ${process.versions.electron}\nnode ${process.versions.node}\n` +
+    `os ${process.platform} ${process.arch}\n`));
+  const logs = db.prepare('SELECT t,level,site,msg FROM logs ORDER BY id DESC LIMIT 5000').all();
+  zip.addFile('logs.txt', Buffer.from(logs.map((l: any) =>
+    `${new Date(l.t).toISOString()} ${l.level} ${l.site} ${l.msg}`).join('\n')));
+  const out = `${app.getPath('downloads')}/havoc-diagnostics-${Date.now()}.zip`;
+  zip.writeZip(out);
+  return out;
+}
+
+import { get } from '../engine/http';
+import { createVerify } from 'node:crypto';
+import { db, getSetting, setSetting } from './db';
+
+const FEED = 'https://packs.havoc.ai/latest.json';
+
+export async function syncPacks() {
+  const res = await get(FEED, { timeoutMs: 10_000 });
+  const pack = res.json<{ version: number; sig: string; payload: any }>();
+  if (!pack) return false;
+
+  const v = createVerify('sha256').update(JSON.stringify(pack.payload)).verify(
+    getSetting('packs.pubkey')!, pack.sig, 'base64');
+  if (!v) return false;
+
+  db.prepare('INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v')
+    .run('packs.payload', JSON.stringify(pack.payload));
+  setSetting('packs.version', String(pack.version));
+  return true;
+}
+
+export const packFor = (host: string) =>
+  JSON.parse(getSetting('packs.payload') ?? '{}')?.sites?.[host] ?? null;
+
+name: build
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run rebuild
+      - run: npm run build
+      - run: npx electron-builder --win --x64 --publish never
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.zip
+          draft: false
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --mac --x64 --arm64 --publish never
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.dmg
+
+
+win:
+  target:
+    - { target: nsis, arch: [x64] }
+    - { target: portable, arch: [x64] }
+artifactName: "HavocAIO-${version}-${arch}.${ext}"
