@@ -1,0 +1,15 @@
+import sharp from 'sharp';
+import pngToIco from 'png-to-ico';
+import fs from 'node:fs/promises';
+
+const SRC = 'resources/logo-master.png';
+const SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024];
+
+await fs.mkdir('resources/icons', { recursive: true });
+for (const s of SIZES) {
+  await sharp(SRC).resize(s, s, { fit: 'contain' }).png()
+    .toFile(`resources/icons/${s}.png`);
+}
+await fs.writeFile('resources/icon.ico',
+  await pngToIco(SIZES.filter(s => s <= 256).map(s => `resources/icons/${s}.png`)));
+await fs.copyFile('resources/icons/512.png', 'renderer/public/logo.png');
