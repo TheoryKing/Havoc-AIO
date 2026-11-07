@@ -1,0 +1,19 @@
+import { db } from '../main/db';
+
+export function score(proxyId: string): number {
+  const r = db.prepare(
+    `SELECT SUM(ok) ok, COUNT(*) n, AVG(latency_ms) lat FROM (
+       SELECT 1 ok, latency_ms FROM proxies WHERE id=?
+       UNION ALL SELECT 0, 0 FROM checkouts WHERE task_id LIKE ? || '%' AND order_number IS NULL
+     )`).get(proxyId, proxyId) as any;
+  const rate = r?.n ? (r.ok ?? 0) / r.n : 0.5;
+  const lat = r?.lat ?? 800;
+  return rate * 100 - lat / 40;
+}
+
+export function quarantineLosers(groupId: string) {
+  const rows = db.prepare('SELECT id FROM proxies WHERE group_id=?').all(groupId) as any[];
+  const scored = rows.map(r => ({ id: r.id, s: score(r.id) })).sort((a, b) => b.s - a.s);
+  const cut = scored.slice(0, Math.max(1, Math.ceil(scored.length * 0.15)));
+  for (const r of cut) db.prepare("UPDATE proxies SET health='dead' WHERE id=?").run(r.id);
+}
