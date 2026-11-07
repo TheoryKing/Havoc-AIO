@@ -1,0 +1,18 @@
+import { adapterFor } from '../stores/registry';
+import { ShopifyAdapter } from '../stores/shopify';
+
+export const SAFE_TEST_PRODUCT = 'https://kith.com/products/kh86237-001';
+
+/** Runs the real chain but stops before submit. */
+export async function testCheckout(ctx: any) {
+  const a = adapterFor(ctx.task.site);
+  const v = await a.findVariant(ctx, SAFE_TEST_PRODUCT);
+  if (!v) throw new Error('No test variant available');
+  await a.addToCart(ctx, v.variantId, 1);
+
+  if (a instanceof ShopifyAdapter) {
+    const r = await (a as any).reachPaymentStep(ctx);
+    return { reached: 'payment', orderPreview: r.price };
+  }
+  return { reached: 'cart' };
+}
